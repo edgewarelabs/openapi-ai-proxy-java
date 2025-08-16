@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Define the logs directory property -->
+    <property name="LOGS_DIR" value="logs"/>
+    
+    <!-- Create logs directory if it doesn't exist -->
+    <property name="LOG_FILE" value="${LOGS_DIR}/openapi-mcp-proxy.log"/>
+    
+    <!-- Console appender for development -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -- %msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    <!-- File appender for persistent logging -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_FILE}</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} -- %msg%n</pattern>
+        </encoder>
+        
+        <!-- Rolling policy - create new log files daily and keep 30 days -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOGS_DIR}/openapi-mcp-proxy.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>100MB</totalSizeCap>
+        </rollingPolicy>
+        
+        <!-- Trigger policy - also roll over if file gets too large -->
+        <triggeringPolicy class="ch.qos.logback.core.rolling.SizeBasedTriggeringPolicy">
+            <maxFileSize>10MB</maxFileSize>
+        </triggeringPolicy>
+    </appender>
+    
+    <!-- Application-specific logger -->
+    <logger name="com.edgewarelabs.aiproxy" level="INFO"/>
+    
+    <!-- MCP SDK logger - reduce verbosity -->
+    <logger name="io.modelcontextprotocol" level="INFO"/>
+    
+    <!-- Jetty logger - reduce verbosity -->
+    <logger name="org.eclipse.jetty" level="INFO"/>
+    
+    <!-- Reactor logger - reduce verbosity -->
+    <logger name="reactor" level="INFO"/>
+    
+    <!-- HTTP client logger - reduce verbosity -->
+    <logger name="org.apache.hc" level="INFO"/>
+    
+    <!-- Root logger -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
