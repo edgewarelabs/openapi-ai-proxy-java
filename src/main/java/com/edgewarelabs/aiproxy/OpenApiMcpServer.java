@@ -53,9 +53,8 @@ public class OpenApiMcpServer {
         
         // Create HTTP transport provider
         var transportProvider = HttpServletSseServerTransportProvider.builder()
-                .baseUrl(messageEndpoint)
-                .sseEndpoint(messageEndpoint + "/sse")
-                .messageEndpoint(messageEndpoint)
+                .messageEndpoint("/mcp/message")
+                .sseEndpoint("/mcp/sse")
                 .build();
 
         mcpServer = McpServer.sync(transportProvider)
@@ -78,7 +77,8 @@ public class OpenApiMcpServer {
         
         // Add the MCP servlet - the transport provider is the servlet
         ServletHolder servletHolder = new ServletHolder(transportProvider);
-        context.addServlet(servletHolder, "/sse");
+        context.addServlet(servletHolder, "/mcp/sse");
+        context.addServlet(servletHolder, "/mcp/message");
         
         // Add a simple health check endpoint
         context.addServlet(new ServletHolder(new HealthCheckServlet()), "/health");
