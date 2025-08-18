@@ -34,7 +34,7 @@
     </appender>
     
     <!-- Application-specific logger -->
-    <logger name="com.edgewarelabs.aiproxy" level="INFO"/>
+    <logger name="com.edgewarelabs.aiproxy" level="DEBUG"/>
     
     <!-- MCP SDK logger - reduce verbosity -->
     <logger name="io.modelcontextprotocol" level="INFO"/>

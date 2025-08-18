@@ -13,6 +13,8 @@ import java.util.*;
 public class OpenApiParser {
     private static final Logger logger = LoggerFactory.getLogger(OpenApiParser.class);
     private final ObjectMapper yamlMapper;
+    private JsonNode rootDocument;
+    private String serverBasePath;
 
     public OpenApiParser() {
         this.yamlMapper = new ObjectMapper(new YAMLFactory());
@@ -21,10 +23,13 @@ public class OpenApiParser {
     public List<OpenApiOperation> parseOpenApiFile(String filePath) throws IOException {
         logger.info("Parsing OpenAPI file: {}", filePath);
         
-        JsonNode root = yamlMapper.readTree(new File(filePath));
+        rootDocument = yamlMapper.readTree(new File(filePath));
         List<OpenApiOperation> operations = new ArrayList<>();
         
-        JsonNode paths = root.get("paths");
+        // Parse server information to extract base path
+        parseServerInformation();
+        
+        JsonNode paths = rootDocument.get("paths");
         if (paths == null) {
             logger.warn("No paths found in OpenAPI specification");
             return operations;
@@ -115,10 +120,35 @@ public class OpenApiParser {
         JsonNode requestBody = operationNode.get("requestBody");
         if (requestBody != null) {
             JsonNode content = requestBody.get("content");
-            if (content != null) {
-                JsonNode applicationJson = content.get("application/json");
-                if (applicationJson != null) {
-                    return applicationJson.get("schema");
+            if (content != null && content.isObject()) {
+                Iterator<String> fieldNames = content.fieldNames();
+                while (fieldNames.hasNext()) {
+                    String fieldName = fieldNames.next();
+                    // Handle various JSON content types including charset variations
+                    if (fieldName.startsWith("application/json")) {
+                        JsonNode contentTypeNode = content.get(fieldName);
+                        if (contentTypeNode != null) {
+                            JsonNode schema = contentTypeNode.get("schema");
+                            if (schema != null) {
+                                // Resolve all $ref references to get the complete schema
+                                return resolveAllReferences(schema);
+                            }
+                        }
+                    }
+                }
+                
+                // Fallback: try other content types if no JSON found
+                fieldNames = content.fieldNames();
+                while (fieldNames.hasNext()) {
+                    String fieldName = fieldNames.next();
+                    JsonNode contentTypeNode = content.get(fieldName);
+                    if (contentTypeNode != null) {
+                        JsonNode schema = contentTypeNode.get("schema");
+                        if (schema != null) {
+                            // Resolve all $ref references to get the complete schema
+                            return resolveAllReferences(schema);
+                        }
+                    }
                 }
             }
         }
@@ -143,5 +173,158 @@ public class OpenApiParser {
     private String getTextValue(JsonNode node, String fieldName) {
         JsonNode field = node.get(fieldName);
         return field != null ? field.asText() : null;
+    }
+    
+    /**
+     * Resolves a $ref reference to the actual schema definition.
+     * Handles internal references like "#/components/schemas/SchemaName"
+     */
+    private JsonNode resolveReference(JsonNode schema) {
+        if (schema == null || rootDocument == null) {
+            return schema;
+        }
+        
+        JsonNode refNode = schema.get("$ref");
+        if (refNode != null) {
+            String ref = refNode.asText();
+            if (ref.startsWith("#/")) {
+                // Parse the reference path
+                String[] pathParts = ref.substring(2).split("/");
+                JsonNode current = rootDocument;
+                
+                for (String part : pathParts) {
+                    current = current.get(part);
+                    if (current == null) {
+                        logger.warn("Could not resolve reference: {}", ref);
+                        return schema; // Return original if resolution fails
+                    }
+                }
+                
+                // Recursively resolve in case the resolved schema has more references
+                return resolveReference(current);
+            }
+        }
+        
+        return schema;
+    }
+    
+    /**
+     * Recursively resolves all $ref references in a schema, including nested ones
+     */
+    @SuppressWarnings("unchecked")
+    private JsonNode resolveAllReferences(JsonNode schema) {
+        if (schema == null) {
+            return null;
+        }
+        
+        // First resolve the current level
+        JsonNode resolved = resolveReference(schema);
+        
+        // If this is an object, check for nested references
+        if (resolved.isObject()) {
+            // Handle arrays with items
+            JsonNode items = resolved.get("items");
+            if (items != null) {
+                JsonNode resolvedItems = resolveAllReferences(items);
+                if (resolvedItems != items) {
+                    // Create a copy with resolved items
+                    ObjectMapper mapper = new ObjectMapper();
+                    try {
+                        Map<String, Object> schemaMap = mapper.convertValue(resolved, Map.class);
+                        schemaMap.put("items", mapper.convertValue(resolvedItems, Object.class));
+                        resolved = mapper.valueToTree(schemaMap);
+                    } catch (Exception e) {
+                        logger.warn("Failed to resolve items reference", e);
+                    }
+                }
+            }
+            
+            // Handle properties
+            JsonNode properties = resolved.get("properties");
+            if (properties != null && properties.isObject()) {
+                ObjectMapper mapper = new ObjectMapper();
+                try {
+                    Map<String, Object> schemaMap = mapper.convertValue(resolved, Map.class);
+                    Map<String, Object> resolvedProperties = new HashMap<>();
+                    
+                    Iterator<Map.Entry<String, JsonNode>> propIterator = properties.fields();
+                    while (propIterator.hasNext()) {
+                        Map.Entry<String, JsonNode> entry = propIterator.next();
+                        JsonNode resolvedProp = resolveAllReferences(entry.getValue());
+                        resolvedProperties.put(entry.getKey(), mapper.convertValue(resolvedProp, Object.class));
+                    }
+                    
+                    schemaMap.put("properties", resolvedProperties);
+                    resolved = mapper.valueToTree(schemaMap);
+                } catch (Exception e) {
+                    logger.warn("Failed to resolve properties references", e);
+                }
+            }
+            
+            // Handle allOf, oneOf, anyOf
+            for (String compositionKey : Arrays.asList("allOf", "oneOf", "anyOf")) {
+                JsonNode compositionNode = resolved.get(compositionKey);
+                if (compositionNode != null && compositionNode.isArray()) {
+                    ObjectMapper mapper = new ObjectMapper();
+                    try {
+                        Map<String, Object> schemaMap = mapper.convertValue(resolved, Map.class);
+                        List<Object> resolvedComposition = new ArrayList<>();
+                        
+                        for (JsonNode item : compositionNode) {
+                            JsonNode resolvedItem = resolveAllReferences(item);
+                            resolvedComposition.add(mapper.convertValue(resolvedItem, Object.class));
+                        }
+                        
+                        schemaMap.put(compositionKey, resolvedComposition);
+                        resolved = mapper.valueToTree(schemaMap);
+                    } catch (Exception e) {
+                        logger.warn("Failed to resolve {} references", compositionKey, e);
+                    }
+                }
+            }
+        }
+        
+        return resolved;
+    }
+    
+    /**
+     * Parses server information from the OpenAPI spec to extract the base path
+     */
+    private void parseServerInformation() {
+        JsonNode servers = rootDocument.get("servers");
+        if (servers != null && servers.isArray() && servers.size() > 0) {
+            // Use the first server definition
+            JsonNode firstServer = servers.get(0);
+            JsonNode urlNode = firstServer.get("url");
+            if (urlNode != null) {
+                String serverUrl = urlNode.asText();
+                
+                // Extract the path part from the URL (everything after the third slash)
+                // e.g., "https://{serverBase}/mefApi/sonata/geographicAddressManagement/v8/" -> "/mefApi/sonata/geographicAddressManagement/v8/"
+                if (serverUrl.contains("://")) {
+                    int protocolEnd = serverUrl.indexOf("://") + 3;
+                    int pathStart = serverUrl.indexOf("/", protocolEnd);
+                    if (pathStart != -1) {
+                        serverBasePath = serverUrl.substring(pathStart);
+                        if (!serverBasePath.endsWith("/")) {
+                            serverBasePath += "/";
+                        }
+                        logger.info("Extracted server base path: {}", serverBasePath);
+                    }
+                }
+            }
+        }
+        
+        if (serverBasePath == null || serverBasePath.isEmpty()) {
+            serverBasePath = "/";
+            logger.info("No server base path found, using default: /");
+        }
+    }
+    
+    /**
+     * Gets the server base path extracted from the OpenAPI specification
+     */
+    public String getServerBasePath() {
+        return serverBasePath;
     }
 }

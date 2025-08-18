@@ -1,21 +1,28 @@
 package com.edgewarelabs.aiproxy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.modelcontextprotocol.server.McpServer;
-import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.McpServerFeatures;
-import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
-import io.modelcontextprotocol.spec.McpSchema;
-import org.eclipse.jetty.server.Server;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
 import org.eclipse.jetty.ee10.servlet.ServletHolder;
+import org.eclipse.jetty.server.Server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.util.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import io.modelcontextprotocol.server.McpServer;
+import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
+import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
+import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
+import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 
 public class OpenApiMcpServer {
     private static final Logger logger = LoggerFactory.getLogger(OpenApiMcpServer.class);
@@ -25,7 +32,7 @@ public class OpenApiMcpServer {
     private final String targetUrl;
     private final String messageEndpoint;
     private final OpenApiParser parser;
-    private final RestClient restClient;
+    private RestClient restClient;
     private final ObjectMapper objectMapper;
     private List<OpenApiOperation> operations;
     private Server jettyServer;
@@ -37,7 +44,6 @@ public class OpenApiMcpServer {
         this.targetUrl = targetUrl;
         this.messageEndpoint = messageEndpoint;
         this.parser = new OpenApiParser();
-        this.restClient = new RestClient(targetUrl);
         this.objectMapper = new ObjectMapper();
     }
 
@@ -48,6 +54,20 @@ public class OpenApiMcpServer {
         if (operations.isEmpty()) {
             throw new IllegalStateException("No operations found in OpenAPI specification");
         }
+        
+        // Get the server base path from the parser and update the RestClient
+        String serverBasePath = parser.getServerBasePath();
+        String fullTargetUrl = targetUrl;
+        if (!"/".equals(serverBasePath)) {
+            // Remove trailing slash from targetUrl if present, then add the base path
+            if (fullTargetUrl.endsWith("/")) {
+                fullTargetUrl = fullTargetUrl.substring(0, fullTargetUrl.length() - 1);
+            }
+            fullTargetUrl += serverBasePath;
+        }
+        
+        logger.info("Target URL with base path: {}", fullTargetUrl);
+        this.restClient = new RestClient(fullTargetUrl);
         
         logger.info("Building MCP server with {} tools", operations.size());
         
@@ -111,6 +131,7 @@ public class OpenApiMcpServer {
         Map<String, Object> properties = new HashMap<>();
         List<String> required = new ArrayList<>();
         
+        // Add parameters to the schema
         for (OpenApiOperation.OpenApiParameter param : operation.getParameters()) {
             Map<String, Object> paramSchema = new HashMap<>();
             paramSchema.put("type", convertToJsonSchemaType(param.getType()));
@@ -124,11 +145,25 @@ public class OpenApiMcpServer {
             }
         }
         
+        // If there's a request body schema, add it as a separate requestBody parameter
         if (operation.getRequestBodySchema() != null) {
-            Map<String, Object> bodySchema = new HashMap<>();
-            bodySchema.put("type", "object");
-            bodySchema.put("description", "Request body");
-            properties.put("requestBody", bodySchema);
+            JsonNode requestBodySchema = operation.getRequestBodySchema();
+            logger.debug("Processing request body schema for {}: {}", toolName, requestBodySchema.toPrettyString());
+            
+            try {
+                // Convert the JsonNode to a Map and add as requestBody parameter
+                @SuppressWarnings("unchecked")
+                Map<String, Object> bodySchemaMap = objectMapper.convertValue(requestBodySchema, Map.class);
+                properties.put("requestBody", bodySchemaMap);
+                logger.debug("Added request body schema as separate parameter for {}", toolName);
+            } catch (Exception e) {
+                logger.warn("Failed to convert request body schema for {}, using generic object", toolName, e);
+                // Fallback to generic object if conversion fails
+                Map<String, Object> bodySchema = new HashMap<>();
+                bodySchema.put("type", "object");
+                bodySchema.put("description", "Request body");
+                properties.put("requestBody", bodySchema);
+            }
         }
         
         Map<String, Object> inputSchema = new HashMap<>();
@@ -141,13 +176,21 @@ public class OpenApiMcpServer {
         // Convert inputSchema to JSON string
         String inputSchemaJson = objectMapper.writeValueAsString(inputSchema);
         
-        var tool = new McpSchema.Tool(toolName, description, inputSchemaJson);
+        // Debug logging to see the actual schema being generated
+        logger.debug("Generated schema for {}: {}", toolName, inputSchemaJson);
         
-        var toolSpec = new McpServerFeatures.SyncToolSpecification(
-                tool,
-                (exchange, arguments) -> {
+        var tool = McpSchema.Tool.builder()
+                .name(toolName)
+                .description(description)
+                .inputSchema(inputSchemaJson)
+                .build();
+
+        
+        var toolSpec = SyncToolSpecification.builder()
+                .tool(tool)
+                .callHandler((McpSyncServerExchange exchange, CallToolRequest callToolRequest) -> {
                     try {
-                        var result = executeOperation(operation, (JsonNode) arguments);
+                        var result = executeOperation(operation, callToolRequest);
                         return new McpSchema.CallToolResult(
                                 List.of(new McpSchema.TextContent(objectMapper.writeValueAsString(result))),
                                 false
@@ -167,8 +210,8 @@ public class OpenApiMcpServer {
                             );
                         }
                     }
-                }
-        );
+                })
+                .build();
         
         server.addTool(toolSpec);
         logger.debug("Registered tool: {} - {}", toolName, description);
@@ -207,17 +250,23 @@ public class OpenApiMcpServer {
             default -> "string";
         };
     }
-    
-    private ObjectNode executeOperation(OpenApiOperation operation, JsonNode args) throws IOException {
+
+    private ObjectNode executeOperation(OpenApiOperation operation, CallToolRequest callToolRequest) throws IOException {
         Map<String, String> pathParams = new HashMap<>();
         Map<String, String> queryParams = new HashMap<>();
         Map<String, String> headers = new HashMap<>();
         JsonNode requestBody = null;
         
+        // Debug: Log all incoming arguments
+        logger.debug("Incoming arguments for {}: {}", operation.getOperationId(), callToolRequest.arguments());
+        
+        // Process parameters
         for (OpenApiOperation.OpenApiParameter param : operation.getParameters()) {
-            JsonNode value = args.get(param.getName());
-            if (value != null && !value.isNull()) {
-                String stringValue = value.asText();
+            Object paramValue = callToolRequest.arguments().get(param.getName());
+            logger.debug("Parameter '{}' has value: {}", param.getName(), paramValue);
+            
+            if (paramValue != null) {
+                String stringValue = paramValue.toString();
                 
                 switch (param.getIn().toLowerCase()) {
                     case "path" -> pathParams.put(param.getName(), stringValue);
@@ -227,9 +276,14 @@ public class OpenApiMcpServer {
             }
         }
         
-        JsonNode requestBodyArg = args.get("requestBody");
-        if (requestBodyArg != null && !requestBodyArg.isNull()) {
-            requestBody = requestBodyArg;
+        // Process request body as a separate parameter
+        Object requestBodyArg = callToolRequest.arguments().get("requestBody");
+        logger.debug("Request body argument: {}", requestBodyArg);
+        
+        if (requestBodyArg != null) {
+            // Convert the request body argument directly to JsonNode
+            requestBody = objectMapper.valueToTree(requestBodyArg);
+            logger.debug("Request body: {}", requestBody.toPrettyString());
         }
         
         RestClient.RestResponse response = restClient.executeRequest(
