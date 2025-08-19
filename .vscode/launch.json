@@ -19,8 +19,8 @@
             "mainClass": "com.edgewarelabs.aiproxy.OpenApiMcpProxy",
             "args": [
                 "-s", "../seller-simulator/openapi-sonata/geographicAddressManagement.api.yaml",
-                "-t", "http://localhost:8280",
-                "-p", "9043"
+                "-t", "http://localhost:4000",
+                "-p", "3000"
             ],
             "projectName": "openapi-ai-proxy-java"
         }
