@@ -1,0 +1,67 @@
+openapi: 3.0.0
+info:
+  title: Product Ordering API
+  description: MEF Product Ordering API
+  version: 8.0.0
+servers:
+  - url: https://serverBase/mefApi/sonata/productOrdering/v8/
+paths:
+  /productOrder:
+    get:
+      operationId: listProductOrders
+      summary: List product orders
+      description: Retrieve a list of product orders
+      parameters:
+        - name: state
+          in: query
+          description: Filter by order state
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      operationId: createProductOrder
+      summary: Create a product order
+      description: Create a new product order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                externalId:
+                  type: string
+                description:
+                  type: string
+                requestedStartDate:
+                  type: string
+                  format: date-time
+      responses:
+        '201':
+          description: Order created successfully
+  /productOrder/{id}:
+    get:
+      operationId: getProductOrder
+      summary: Get a specific product order
+      description: Retrieve a specific product order by ID
+      parameters:
+        - name: id
+          in: path
+          description: Order ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+        '404':
+          description: Order not found

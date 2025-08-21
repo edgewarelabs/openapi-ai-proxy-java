@@ -15,6 +15,7 @@ public class OpenApiParser {
     private final ObjectMapper yamlMapper;
     private JsonNode rootDocument;
     private String serverBasePath;
+    private String servicePrefix;
 
     public OpenApiParser() {
         this.yamlMapper = new ObjectMapper(new YAMLFactory());
@@ -79,7 +80,7 @@ public class OpenApiParser {
         Map<String, JsonNode> responses = parseResponses(operationNode);
         
         return new OpenApiOperation(path, method, operationId, summary, description, 
-                                   parameters, requestBodySchema, responses);
+                                   parameters, requestBodySchema, responses, servicePrefix, serverBasePath);
     }
     
     private String generateOperationId(String method, String path) {
@@ -310,15 +311,98 @@ public class OpenApiParser {
                             serverBasePath += "/";
                         }
                         logger.info("Extracted server base path: {}", serverBasePath);
+                        
+                        // Extract service prefix from the base path
+                        servicePrefix = extractServicePrefix(serverBasePath);
+                        logger.info("Extracted service prefix: {}", servicePrefix);
                     }
+                } else {
+                    // If no protocol, treat the whole URL as a path
+                    serverBasePath = serverUrl;
+                    if (!serverBasePath.startsWith("/")) {
+                        serverBasePath = "/" + serverBasePath;
+                    }
+                    if (!serverBasePath.endsWith("/")) {
+                        serverBasePath += "/";
+                    }
+                    servicePrefix = extractServicePrefix(serverBasePath);
+                    logger.info("Extracted server base path: {}", serverBasePath);
+                    logger.info("Extracted service prefix: {}", servicePrefix);
                 }
             }
         }
         
         if (serverBasePath == null || serverBasePath.isEmpty()) {
             serverBasePath = "/";
-            logger.info("No server base path found, using default: /");
+            servicePrefix = "api"; // Default prefix
+            logger.info("No server base path found, using default: / with prefix: {}", servicePrefix);
         }
+    }
+    
+    /**
+     * Extracts a meaningful service prefix from the base path.
+     * For example:
+     * - "/mefApi/sonata/geographicAddressManagement/v8/" -> "geographicAddressManagement"
+     * - "/api/v1/users/" -> "users"
+     * - "/geographicSite/" -> "geographicSite"
+     * - "/" -> "api"
+     */
+    private String extractServicePrefix(String basePath) {
+        if (basePath == null || basePath.equals("/")) {
+            return "api";
+        }
+        
+        // Remove leading and trailing slashes
+        String cleanPath = basePath.replaceAll("^/+|/+$", "");
+        if (cleanPath.isEmpty()) {
+            return "api";
+        }
+        
+        // Split by slash and find the most meaningful part
+        String[] pathParts = cleanPath.split("/");
+        
+        // Look for meaningful service names by prioritizing:
+        // 1. Parts that are not version numbers (v1, v2, etc.)
+        // 2. Parts that are not generic (api, sonata, mef, etc.)
+        // 3. Longer parts over shorter ones
+        String bestCandidate = null;
+        
+        for (String part : pathParts) {
+            // Skip version patterns
+            if (part.matches("v\\d+") || part.matches("version\\d+")) {
+                continue;
+            }
+            
+            // Skip common generic terms
+            if (part.equalsIgnoreCase("api") || part.equalsIgnoreCase("sonata") || 
+                part.equalsIgnoreCase("mef") || part.equalsIgnoreCase("mefapi")) {
+                continue;
+            }
+            
+            // Prefer longer, more descriptive names
+            if (bestCandidate == null || part.length() > bestCandidate.length()) {
+                bestCandidate = part;
+            }
+        }
+        
+        // If no good candidate found, use the last non-version part
+        if (bestCandidate == null) {
+            for (int i = pathParts.length - 1; i >= 0; i--) {
+                String part = pathParts[i];
+                if (!part.matches("v\\d+") && !part.matches("version\\d+")) {
+                    bestCandidate = part;
+                    break;
+                }
+            }
+        }
+        
+        // Final fallback
+        if (bestCandidate == null || bestCandidate.isEmpty()) {
+            bestCandidate = "api";
+        }
+        
+        // Clean up the prefix to be a valid identifier
+        return bestCandidate.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
     }
     
     /**
@@ -326,5 +410,12 @@ public class OpenApiParser {
      */
     public String getServerBasePath() {
         return serverBasePath;
+    }
+    
+    /**
+     * Gets the service prefix extracted from the OpenAPI specification
+     */
+    public String getServicePrefix() {
+        return servicePrefix;
     }
 }

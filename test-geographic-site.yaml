@@ -1,0 +1,66 @@
+openapi: 3.0.0
+info:
+  title: Geographic Site Management API
+  description: MEF Geographic Site Management API
+  version: 8.0.0
+servers:
+  - url: https://serverBase/mefApi/sonata/geographicSite/v8/
+paths:
+  /geographicSite:
+    get:
+      operationId: listGeographicSites
+      summary: List geographic sites
+      description: Retrieve a list of geographic sites
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of items to return
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      operationId: createGeographicSite
+      summary: Create a geographic site
+      description: Create a new geographic site
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                address:
+                  type: object
+      responses:
+        '201':
+          description: Site created successfully
+  /geographicSite/{id}:
+    get:
+      operationId: getGeographicSite
+      summary: Get a specific geographic site
+      description: Retrieve a specific geographic site by ID
+      parameters:
+        - name: id
+          in: path
+          description: Site ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successful response
+        '404':
+          description: Site not found

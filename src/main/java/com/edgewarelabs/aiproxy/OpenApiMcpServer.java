@@ -27,49 +27,48 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 public class OpenApiMcpServer {
     private static final Logger logger = LoggerFactory.getLogger(OpenApiMcpServer.class);
     
-    private final String swaggerFilePath;
+    private final String[] swaggerFilePaths;
     private final int port;
     private final String targetUrl;
     private final String messageEndpoint;
-    private final OpenApiParser parser;
     private RestClient restClient;
     private final ObjectMapper objectMapper;
     private List<OpenApiOperation> operations;
     private Server jettyServer;
     private McpSyncServer mcpServer;
 
-    public OpenApiMcpServer(String swaggerFilePath, int port, String targetUrl, String messageEndpoint) {
-        this.swaggerFilePath = swaggerFilePath;
+    public OpenApiMcpServer(String[] swaggerFilePaths, int port, String targetUrl, String messageEndpoint) {
+        this.swaggerFilePaths = swaggerFilePaths;
         this.port = port;
         this.targetUrl = targetUrl;
         this.messageEndpoint = messageEndpoint;
-        this.parser = new OpenApiParser();
         this.objectMapper = new ObjectMapper();
     }
 
     public void start() throws Exception {
-        logger.info("Loading OpenAPI operations from: {}", swaggerFilePath);
-        operations = parser.parseOpenApiFile(swaggerFilePath);
+        logger.info("Loading OpenAPI operations from {} file(s): {}", swaggerFilePaths.length, String.join(", ", swaggerFilePaths));
+        
+        operations = new ArrayList<>();
+        
+        // Parse all swagger files and collect operations
+        for (String swaggerFilePath : swaggerFilePaths) {
+            logger.info("Parsing file: {}", swaggerFilePath);
+            OpenApiParser fileParser = new OpenApiParser(); // Create a new parser for each file
+            List<OpenApiOperation> fileOperations = fileParser.parseOpenApiFile(swaggerFilePath);
+            operations.addAll(fileOperations);
+            
+            logger.info("Loaded {} operations from {}", fileOperations.size(), swaggerFilePath);
+        }
         
         if (operations.isEmpty()) {
-            throw new IllegalStateException("No operations found in OpenAPI specification");
+            throw new IllegalStateException("No operations found in any OpenAPI specification");
         }
         
-        // Get the server base path from the parser and update the RestClient
-        String serverBasePath = parser.getServerBasePath();
-        String fullTargetUrl = targetUrl;
-        if (!"/".equals(serverBasePath)) {
-            // Remove trailing slash from targetUrl if present, then add the base path
-            if (fullTargetUrl.endsWith("/")) {
-                fullTargetUrl = fullTargetUrl.substring(0, fullTargetUrl.length() - 1);
-            }
-            fullTargetUrl += serverBasePath;
-        }
+        // Create RestClient with just the target URL (no base path)
+        logger.info("Target URL: {}", targetUrl);
+        this.restClient = new RestClient(targetUrl);
         
-        logger.info("Target URL with base path: {}", fullTargetUrl);
-        this.restClient = new RestClient(fullTargetUrl);
-        
-        logger.info("Building MCP server with {} tools", operations.size());
+        logger.info("Building MCP server with {} total tools from {} file(s)", operations.size(), swaggerFilePaths.length);
         
         // Create HTTP transport provider
         var transportProvider = HttpServletSseServerTransportProvider.builder()
@@ -124,7 +123,7 @@ public class OpenApiMcpServer {
     }
     
     private void registerOperation(McpSyncServer server, OpenApiOperation operation) throws IOException {
-        String toolName = operation.getOperationId();
+        String toolName = operation.getPrefixedToolName();
         String description = buildToolDescription(operation);
         
         // Build input schema
@@ -196,7 +195,7 @@ public class OpenApiMcpServer {
                                 false
                         );
                     } catch (Exception e) {
-                        logger.error("Error executing operation: " + operation.getOperationId(), e);
+                        logger.error("Error executing operation: {} (tool: {})", operation.getOperationId(), toolName, e);
                         var errorResult = createErrorResponse("Error executing operation: " + e.getMessage());
                         try {
                             return new McpSchema.CallToolResult(
@@ -214,7 +213,7 @@ public class OpenApiMcpServer {
                 .build();
         
         server.addTool(toolSpec);
-        logger.debug("Registered tool: {} - {}", toolName, description);
+        logger.debug("Registered tool: {} (from operation: {}) - {}", toolName, operation.getOperationId(), description);
     }
     
     private String buildToolDescription(OpenApiOperation operation) {
@@ -258,7 +257,7 @@ public class OpenApiMcpServer {
         JsonNode requestBody = null;
         
         // Debug: Log all incoming arguments
-        logger.debug("Incoming arguments for {}: {}", operation.getOperationId(), callToolRequest.arguments());
+        logger.debug("Incoming arguments for {} (tool: {}): {}", operation.getOperationId(), operation.getPrefixedToolName(), callToolRequest.arguments());
         
         // Process parameters
         for (OpenApiOperation.OpenApiParameter param : operation.getParameters()) {
@@ -292,7 +291,8 @@ public class OpenApiMcpServer {
                 pathParams,
                 queryParams,
                 headers,
-                requestBody
+                requestBody,
+                operation.getServerBasePath()
         );
         
         return createSuccessResponse(response);

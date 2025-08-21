@@ -14,7 +14,7 @@ import picocli.CommandLine.Option;
 
 @Command(
     name = "openapi-mcp-proxy",
-    description = "Creates an MCP server from an OpenAPI/Swagger specification",
+    description = "Creates an MCP server from one or more OpenAPI/Swagger specifications",
     version = "1.0.0",
     mixinStandardHelpOptions = true
 )
@@ -23,10 +23,10 @@ public class OpenApiMcpProxy implements Callable<Integer> {
 
     @Option(
         names = {"-s", "--swagger"},
-        description = "Path to OpenAPI/Swagger YAML file",
+        description = "Path(s) to OpenAPI/Swagger YAML file(s). Can be specified multiple times.",
         required = true
     )
-    private String swaggerFilePath;
+    private String[] swaggerFilePaths;
 
     @Option(
         names = {"-p", "--port"},
@@ -64,12 +64,12 @@ public class OpenApiMcpProxy implements Callable<Integer> {
             }
             
             logger.info("Starting OpenAPI MCP Proxy");
-            logger.info("Swagger file: {}", swaggerFilePath);
+            logger.info("Swagger files: {}", String.join(", ", swaggerFilePaths));
             logger.info("MCP server port: {}", port);
             logger.info("Target URL: {}", targetUrl);
             logger.info("Message endpoint: {}", messageEndpoint);
             
-            OpenApiMcpServer server = new OpenApiMcpServer(swaggerFilePath, port, targetUrl, messageEndpoint);
+            OpenApiMcpServer server = new OpenApiMcpServer(swaggerFilePaths, port, targetUrl, messageEndpoint);
             server.start();
             
             return 0;
@@ -80,9 +80,11 @@ public class OpenApiMcpProxy implements Callable<Integer> {
     }
     
     private void validateInputs() {
-        Path swaggerPath = Paths.get(swaggerFilePath);
-        if (!Files.exists(swaggerPath)) {
-            throw new IllegalArgumentException("Swagger file does not exist: " + swaggerFilePath);
+        for (String swaggerFilePath : swaggerFilePaths) {
+            Path swaggerPath = Paths.get(swaggerFilePath);
+            if (!Files.exists(swaggerPath)) {
+                throw new IllegalArgumentException("Swagger file does not exist: " + swaggerFilePath);
+            }
         }
         
         if (port < 1 || port > 65535) {

@@ -20,20 +20,30 @@ public class RestClient {
     private static final Logger logger = LoggerFactory.getLogger(RestClient.class);
     private final CloseableHttpClient httpClient;
     private final ObjectMapper objectMapper;
-    private final String baseUrl;
+    private final String targetUrl;
 
-    public RestClient(String baseUrl) {
-        this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+    public RestClient(String targetUrl) {
+        this.targetUrl = targetUrl.endsWith("/") ? targetUrl.substring(0, targetUrl.length() - 1) : targetUrl;
         this.httpClient = HttpClients.createDefault();
         this.objectMapper = new ObjectMapper();
     }
 
     public RestResponse executeRequest(String method, String path, Map<String, String> pathParams,
                                      Map<String, String> queryParams, Map<String, String> headers,
-                                     JsonNode requestBody) throws IOException {
+                                     JsonNode requestBody, String serverBasePath) throws IOException {
         
         String resolvedPath = resolvePath(path, pathParams);
-        String fullUrl = baseUrl + resolvedPath;
+        
+        // Construct the full URL with the correct server base path
+        String fullUrl = targetUrl;
+        if (serverBasePath != null && !serverBasePath.equals("/")) {
+            // Remove trailing slash from targetUrl if present, then add the base path
+            if (!serverBasePath.startsWith("/")) {
+                fullUrl += "/";
+            }
+            fullUrl += serverBasePath.endsWith("/") ? serverBasePath.substring(0, serverBasePath.length() - 1) : serverBasePath;
+        }
+        fullUrl += resolvedPath;
         
         if (queryParams != null && !queryParams.isEmpty()) {
             StringBuilder queryString = new StringBuilder("?");
@@ -78,6 +88,13 @@ public class RestClient {
             
             return new RestResponse(statusCode, responseBody, response.getHeaders());
         }
+    }
+
+    // Backward compatibility method - delegates to the new method with "/" as default base path
+    public RestResponse executeRequest(String method, String path, Map<String, String> pathParams,
+                                     Map<String, String> queryParams, Map<String, String> headers,
+                                     JsonNode requestBody) throws IOException {
+        return executeRequest(method, path, pathParams, queryParams, headers, requestBody, "/");
     }
     
     private String resolvePath(String path, Map<String, String> pathParams) {

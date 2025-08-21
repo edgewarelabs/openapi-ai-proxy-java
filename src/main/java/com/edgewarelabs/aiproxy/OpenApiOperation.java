@@ -14,10 +14,13 @@ public class OpenApiOperation {
     private final List<OpenApiParameter> parameters;
     private final JsonNode requestBodySchema;
     private final Map<String, JsonNode> responses;
+    private final String servicePrefix;
+    private final String serverBasePath;
 
     public OpenApiOperation(String path, String method, String operationId, String summary, 
                            String description, List<OpenApiParameter> parameters, 
-                           JsonNode requestBodySchema, Map<String, JsonNode> responses) {
+                           JsonNode requestBodySchema, Map<String, JsonNode> responses, 
+                           String servicePrefix, String serverBasePath) {
         this.path = path;
         this.method = method;
         this.operationId = operationId;
@@ -26,6 +29,8 @@ public class OpenApiOperation {
         this.parameters = parameters;
         this.requestBodySchema = requestBodySchema;
         this.responses = responses;
+        this.servicePrefix = servicePrefix;
+        this.serverBasePath = serverBasePath;
     }
 
     public String getPath() {
@@ -58,6 +63,21 @@ public class OpenApiOperation {
 
     public Map<String, JsonNode> getResponses() {
         return responses;
+    }
+
+    public String getServicePrefix() {
+        return servicePrefix;
+    }
+
+    public String getServerBasePath() {
+        return serverBasePath;
+    }
+
+    public String getPrefixedToolName() {
+        if (servicePrefix != null && !servicePrefix.trim().isEmpty()) {
+            return servicePrefix + "_" + operationId;
+        }
+        return operationId;
     }
 
     public static class OpenApiParameter {

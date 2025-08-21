@@ -31,7 +31,7 @@ The application runs as an HTTP server that exposes an MCP endpoint via Server-S
 ### Command Line Arguments
 
 **Parameters:**
-- `--swagger, -s`: Path to the OpenAPI/Swagger YAML file (required)
+- `--swagger, -s`: Path to the OpenAPI/Swagger YAML file (required). Can be specified multiple times to load multiple API specifications.
 - `--target, -t`: Base URL of the target REST API (required) 
 - `--port, -p`: Port number for the HTTP server (default: 8081)
 - `--message-endpoint, -m`: Message endpoint URL for MCP communication (default: http://localhost:PORT/)
@@ -43,8 +43,11 @@ The application runs as an HTTP server that exposes an MCP endpoint via Server-S
 #### Option 1: Using Gradle (Development)
 
 ```bash
-# Using default port 8081
+# Single OpenAPI file
 ./gradlew run --args="--swagger sample-api.yaml --target https://jsonplaceholder.typicode.com"
+
+# Multiple OpenAPI files
+./gradlew run --args="--swagger sample-api.yaml --swagger geographicAddressManagement.api.yaml --target https://jsonplaceholder.typicode.com"
 
 # Using custom port
 ./gradlew run --args="--swagger sample-api.yaml --target https://jsonplaceholder.typicode.com --port 9090"
@@ -65,8 +68,11 @@ First, build the fat JAR:
 
 Then run with Java 21:
 ```bash
-# Using default port 8081
+# Single OpenAPI file
 java -jar build/libs/openapi-ai-proxy-java.jar --swagger sample-api.yaml --target https://jsonplaceholder.typicode.com
+
+# Multiple OpenAPI files
+java -jar build/libs/openapi-ai-proxy-java.jar --swagger sample-api.yaml --swagger geographicAddressManagement.api.yaml --target https://jsonplaceholder.typicode.com
 
 # Using custom port
 java -jar build/libs/openapi-ai-proxy-java.jar --swagger sample-api.yaml --target https://jsonplaceholder.typicode.com --port 9090
@@ -87,8 +93,11 @@ Create a distribution:
 
 Run using the generated script:
 ```bash
-# Unix/Linux/Mac
+# Unix/Linux/Mac - Single file
 ./build/install/openapi-ai-proxy-java/bin/openapi-ai-proxy-java --swagger sample-api.yaml --target https://jsonplaceholder.typicode.com
+
+# Unix/Linux/Mac - Multiple files
+./build/install/openapi-ai-proxy-java/bin/openapi-ai-proxy-java --swagger sample-api.yaml --swagger geographicAddressManagement.api.yaml --target https://jsonplaceholder.typicode.com
 
 # Windows
 ./build/install/openapi-ai-proxy-java/bin/openapi-ai-proxy-java.bat --swagger sample-api.yaml --target https://jsonplaceholder.typicode.com
