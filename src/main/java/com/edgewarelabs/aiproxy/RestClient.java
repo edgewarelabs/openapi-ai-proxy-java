@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 public class RestClient {
@@ -51,7 +53,9 @@ public class RestClient {
                 if (queryString.length() > 1) {
                     queryString.append("&");
                 }
-                queryString.append(key).append("=").append(value);
+                queryString.append(URLEncoder.encode(key, StandardCharsets.UTF_8))
+                           .append("=")
+                           .append(URLEncoder.encode(value != null ? value : "", StandardCharsets.UTF_8));
             });
             fullUrl += queryString.toString();
         }
@@ -102,7 +106,8 @@ public class RestClient {
         if (pathParams != null) {
             for (Map.Entry<String, String> entry : pathParams.entrySet()) {
                 String placeholder = "{" + entry.getKey() + "}";
-                resolvedPath = resolvedPath.replace(placeholder, entry.getValue());
+                String encodedValue = URLEncoder.encode(entry.getValue() != null ? entry.getValue() : "", StandardCharsets.UTF_8);
+                resolvedPath = resolvedPath.replace(placeholder, encodedValue);
             }
         }
         return resolvedPath;
