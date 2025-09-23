@@ -12,7 +12,6 @@
             "mainClass": "${file}"
         },
         {
-            "cwd": "${workspaceFolder}",
             "type": "java",
             "name": "OpenApiMcpProxy",
             "request": "launch",
