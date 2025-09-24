@@ -11,7 +11,16 @@ java {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
+    maven {
+        name = 'edgewarelabsGithub'
+        url = 'https://maven.pkg.github.com/edgewarelabs/mcp-transports/'
+        credentials(PasswordCredentials) {
+            username = project.findProperty("edgewarelabsGithubUsername") ?: ""
+            password = project.findProperty("edgewarelabsGithubPassword") ?: ""
+        }
+    }         
 }
 
 dependencies {
@@ -27,6 +36,11 @@ dependencies {
     // Jetty for HTTP transport
     implementation 'org.eclipse.jetty:jetty-server:12.0.18'
     implementation 'org.eclipse.jetty.ee10:jetty-ee10-servlet:12.0.18'
+
+	// Custom MCP transport implementations
+    implementation 'com.edgewarelabs.mcp-transports:mcp-transport-core:1.0.0-SNAPSHOT'
+    implementation 'com.edgewarelabs.mcp-transports:mcp-transport-stls-ai:1.0.0-SNAPSHOT'
+    implementation 'com.edgewarelabs.mcp-transports:arqit-sdk:1.0.0-SNAPSHOT'    
     
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.0'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'

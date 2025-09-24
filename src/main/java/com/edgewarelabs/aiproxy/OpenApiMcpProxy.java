@@ -8,6 +8,7 @@ import java.util.concurrent.Callable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.modelcontextprotocol.spec.McpServerTransportProvider;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -48,6 +49,19 @@ public class OpenApiMcpProxy implements Callable<Integer> {
     )
     private String messageEndpoint;
 
+    @Option(
+        names = {"-T", "--transport"},
+        description = "Transport to use for MCP communication (default: sse)",
+        defaultValue = "sse"
+    )
+    private String transport;
+
+    @Option(
+        names = {"--transport-config-file", "-c"},
+        description = "Path to the transport configuration file"
+    )
+    private String transportConfigFile;
+
     public static void main(String[] args) {
         int exitCode = new CommandLine(new OpenApiMcpProxy()).execute(args);
         System.exit(exitCode);
@@ -68,10 +82,11 @@ public class OpenApiMcpProxy implements Callable<Integer> {
             logger.info("MCP server port: {}", port);
             logger.info("Target URL: {}", targetUrl);
             logger.info("Message endpoint: {}", messageEndpoint);
-            
-            OpenApiMcpServer server = new OpenApiMcpServer(swaggerFilePaths, port, targetUrl, messageEndpoint);
-            server.start();
-            
+
+
+            OpenApiMcpServer server = new OpenApiMcpServer(swaggerFilePaths, targetUrl);
+
+            McpServerTransportStarter.startTransport(transport, port, transportConfigFile, server);
             return 0;
         } catch (Exception e) {
             logger.error("Error starting server", e);

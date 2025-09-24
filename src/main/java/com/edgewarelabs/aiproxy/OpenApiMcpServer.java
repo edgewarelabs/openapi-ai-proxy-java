@@ -6,9 +6,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.eclipse.jetty.ee10.servlet.ServletContextHandler;
-import org.eclipse.jetty.ee10.servlet.ServletHolder;
-import org.eclipse.jetty.server.Server;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,32 +17,27 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
-import io.modelcontextprotocol.server.transport.HttpServletSseServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import io.modelcontextprotocol.spec.McpServerTransportProvider;
 
 public class OpenApiMcpServer {
     private static final Logger logger = LoggerFactory.getLogger(OpenApiMcpServer.class);
     
     private final String[] swaggerFilePaths;
-    private final int port;
     private final String targetUrl;
-    private final String messageEndpoint;
     private RestClient restClient;
     private final ObjectMapper objectMapper;
     private List<OpenApiOperation> operations;
-    private Server jettyServer;
     private McpSyncServer mcpServer;
 
-    public OpenApiMcpServer(String[] swaggerFilePaths, int port, String targetUrl, String messageEndpoint) {
+    public OpenApiMcpServer(String[] swaggerFilePaths,String targetUrl) {
         this.swaggerFilePaths = swaggerFilePaths;
-        this.port = port;
         this.targetUrl = targetUrl;
-        this.messageEndpoint = messageEndpoint;
         this.objectMapper = new ObjectMapper();
     }
 
-    public void start() throws Exception {
+    public void initialize(McpServerTransportProvider transportProvider) throws Exception {
         logger.info("Loading OpenAPI operations from {} file(s): {}", swaggerFilePaths.length, String.join(", ", swaggerFilePaths));
         
         operations = new ArrayList<>();
@@ -69,12 +61,6 @@ public class OpenApiMcpServer {
         this.restClient = new RestClient(targetUrl);
         
         logger.info("Building MCP server with {} total tools from {} file(s)", operations.size(), swaggerFilePaths.length);
-        
-        // Create HTTP transport provider
-        var transportProvider = HttpServletSseServerTransportProvider.builder()
-                .messageEndpoint("/mcp/message")
-                .sseEndpoint("/mcp/sse")
-                .build();
 
         mcpServer = McpServer.sync(transportProvider)
                 .serverInfo("OpenAPI MCP Proxy", "1.0.0")
@@ -86,29 +72,7 @@ public class OpenApiMcpServer {
         for (OpenApiOperation operation : operations) {
             registerOperation(mcpServer, operation);
         }
-        
-        // Create and configure Jetty server
-        jettyServer = new Server(port);
-        
-        ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
-        context.setContextPath("/");
-        jettyServer.setHandler(context);
-        
-        // Add the MCP servlet - the transport provider is the servlet
-        ServletHolder servletHolder = new ServletHolder(transportProvider);
-        context.addServlet(servletHolder, "/mcp/sse");
-        context.addServlet(servletHolder, "/mcp/message");
-        
-        // Add a simple health check endpoint
-        context.addServlet(new ServletHolder(new HealthCheckServlet()), "/health");
-        
-        logger.info("Starting HTTP server on port {}", port);
-        jettyServer.start();
-        
-        logger.info("MCP server started and ready");
-        logger.info("MCP endpoint: {}sse", messageEndpoint);
-        logger.info("Health check: {}health", messageEndpoint);
-        
+
         // Keep the server running
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
@@ -116,11 +80,8 @@ public class OpenApiMcpServer {
             } catch (Exception e) {
                 logger.error("Error stopping server", e);
             }
-        }));
-        
-        // Block to keep the server running
-        jettyServer.join();
-    }
+        }));        
+     }
     
     private void registerOperation(McpSyncServer server, OpenApiOperation operation) throws IOException {
         String toolName = operation.getPrefixedToolName();
@@ -329,17 +290,15 @@ public class OpenApiMcpServer {
         result.put("error", message);
         return result;
     }
-    
+
     public void stop() throws Exception {
         logger.info("Stopping servers");
-        if (jettyServer != null) {
-            jettyServer.stop();
-        }
         if (mcpServer != null) {
             mcpServer.close();
         }
         if (restClient != null) {
             restClient.close();
         }
-    }
+    }    
+    
 }
